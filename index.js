@@ -1,13 +1,14 @@
 require("dotenv").config();
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
 
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@practice.hcuo4.mongodb.net/?retryWrites=true&w=majority&appName=practice`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -28,6 +29,29 @@ async function run() {
     const menuCollection = client.db("bistroBossDb").collection("menu");
     const reviewsCollection = client.db("bistroBossDb").collection("reviews ");
     const cartsCollection = client.db("bistroBossDb").collection("carts ");
+    // middlware
+    const verifyToken = (req, res, next) => {
+      console.log("verifyToken ---", req.headers.authorizetion);
+      if (!req.headers.authorizetion) {
+        return res.status(401).send({ massage: "forbidden access" });
+      }
+      const token = req.headers.authorizetion.split(" ")[1];
+      jwt.verify(token, process.env.ACCESS_SECRET_TOKEN, (error, decoded) => {
+        if (error) {
+          return res.status(401).send({ massage: "forbidden access" });
+        }
+        req.decoded = decoded;
+        next();
+      });
+    };
+    // auth related api
+    app.post("/jwt", async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_SECRET_TOKEN, {
+        expiresIn: "1h",
+      });
+      res.send({ token });
+    });
 
     // get menu collection
     app.get("/menu", async (req, res) => {
@@ -47,7 +71,8 @@ async function run() {
       res.send(result);
     });
     // get all users
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyToken, async (req, res) => {
+      // console.log(req.headers);
       const result = await userCollection.find().toArray();
       res.send(result);
     });
@@ -81,6 +106,18 @@ async function run() {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await userCollection.deleteOne(query);
+      res.send(result);
+    });
+    //  create admin api
+    app.patch("/user/admin/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          role: "admin",
+        },
+      };
+      const result = await userCollection.updateOne(filter, updatedDoc);
       res.send(result);
     });
     // Send a ping to confirm a successful connection
