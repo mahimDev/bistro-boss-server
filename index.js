@@ -33,16 +33,27 @@ async function run() {
     const verifyToken = (req, res, next) => {
       console.log("verifyToken ---", req.headers.authorizetion);
       if (!req.headers.authorizetion) {
-        return res.status(401).send({ massage: "forbidden access" });
+        return res.status(401).send({ massage: "unauthorized access" });
       }
       const token = req.headers.authorizetion.split(" ")[1];
       jwt.verify(token, process.env.ACCESS_SECRET_TOKEN, (error, decoded) => {
         if (error) {
-          return res.status(401).send({ massage: "forbidden access" });
+          return res.status(401).send({ massage: "unauthorized access" });
         }
         req.decoded = decoded;
         next();
       });
+    };
+    // use verify admin
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { user_email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.role === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
     };
     // auth related api
     app.post("/jwt", async (req, res) => {
@@ -52,11 +63,36 @@ async function run() {
       });
       res.send({ token });
     });
+    // admin related api
+    app.get(
+      "/user/admin/:email",
+      verifyToken,
 
+      async (req, res) => {
+        const email = req.params.email;
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ massage: "forbidden access" });
+        }
+        const query = { user_email: email };
+        const user = await userCollection.findOne(query);
+        let admin = false;
+        if (user) {
+          admin = user.role === "admin";
+        }
+        res.send({ admin });
+      }
+    );
     // get menu collection
     app.get("/menu", async (req, res) => {
       const menu = await menuCollection.find().toArray();
       res.send(menu);
+    });
+    // get one menu item for update api
+    app.get("/menu/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await menuCollection.findOne(query);
+      res.send(result);
     });
     // get reviews collection
     app.get("/reviews", async (req, res) => {
@@ -71,7 +107,7 @@ async function run() {
       res.send(result);
     });
     // get all users
-    app.get("/users", verifyToken, async (req, res) => {
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
       // console.log(req.headers);
       const result = await userCollection.find().toArray();
       res.send(result);
@@ -88,6 +124,12 @@ async function run() {
       const result = await userCollection.insertOne(user);
       res.send(result);
     });
+    // menu post api
+    app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
+      const menuInfo = req.body;
+      const result = await menuCollection.insertOne(menuInfo);
+      res.send(result);
+    });
     // post add to cart data
     app.post("/cart", async (req, res) => {
       const data = req.body;
@@ -102,14 +144,21 @@ async function run() {
       res.send(result);
     });
     // user delete api
-    app.delete("/user/:id", async (req, res) => {
+    app.delete("/user/:id", verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await userCollection.deleteOne(query);
       res.send(result);
     });
+    // menu items delete api
+    app.delete("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await menuCollection.deleteOne(query);
+      res.send(result);
+    });
     //  create admin api
-    app.patch("/user/admin/:id", async (req, res) => {
+    app.patch("/user/admin/:id", verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updatedDoc = {
