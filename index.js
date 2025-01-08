@@ -3,6 +3,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const app = express();
 const port = process.env.PORT || 3000;
 
@@ -87,7 +88,7 @@ async function run() {
       const menu = await menuCollection.find().toArray();
       res.send(menu);
     });
-    // get one menu item for update api
+    // get one menu item  api
     app.get("/menu/:id", async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
@@ -136,6 +137,20 @@ async function run() {
       const result = await cartsCollection.insertOne(data);
       res.send(result);
     });
+    // payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
+    });
     // user can delete cart data
     app.delete("/cart/:id", async (req, res) => {
       const id = req.params.id;
@@ -167,6 +182,23 @@ async function run() {
         },
       };
       const result = await userCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
+    // update for api
+    app.patch("/menu/:id", async (req, res) => {
+      const menuInfo = req.body;
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updatedDoc = {
+        $set: {
+          name: menuInfo.name,
+          price: menuInfo.price,
+          category: menuInfo.category,
+          recipe: menuInfo.recipe,
+          image: menuInfo.image,
+        },
+      };
+      const result = await menuCollection.updateOne(filter, updatedDoc);
       res.send(result);
     });
     // Send a ping to confirm a successful connection
