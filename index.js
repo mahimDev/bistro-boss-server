@@ -30,9 +30,9 @@ async function run() {
     const menuCollection = client.db("bistroBossDb").collection("menu");
     const reviewsCollection = client.db("bistroBossDb").collection("reviews ");
     const cartsCollection = client.db("bistroBossDb").collection("carts ");
+    const paymentCollection = client.db("bistroBossDb").collection("payment ");
     // middlware
     const verifyToken = (req, res, next) => {
-      console.log("verifyToken ---", req.headers.authorizetion);
       if (!req.headers.authorizetion) {
         return res.status(401).send({ massage: "unauthorized access" });
       }
@@ -150,6 +150,20 @@ async function run() {
       res.send({
         clientSecret: paymentIntent.client_secret,
       });
+    });
+    // after payment is successful then data stored api
+    app.post("/payment", async (req, res) => {
+      const payment = req.body;
+      const paymentResult = await paymentCollection.insertOne(payment);
+      // carefully delete each item from the cart
+
+      const query = {
+        _id: {
+          $in: payment.cartIds.map((id) => new ObjectId(id)),
+        },
+      };
+      const deleteResult = await cartsCollection.deleteMany(query);
+      res.send({ paymentResult, deleteResult });
     });
     // user can delete cart data
     app.delete("/cart/:id", async (req, res) => {
