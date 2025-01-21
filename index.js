@@ -5,10 +5,57 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const app = express();
+// const formData = require("form-data");
+// const Mailgun = require("mailgun.js");
+// const mailgun = new Mailgun(formData);
+// const mg = mailgun.client({
+//   username: "api",
+//   key: process.env.MAILGUN_API_KEY || "key-yourkeyhere",
+// });
+
+const nodemailer = require("nodemailer");
 const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+// send email
+const sendEmail = (emailAdress, emailData) => {
+  const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // true for port 465, false for other ports
+    auth: {
+      user: process.env.NODEMAILER_USER,
+      pass: process.env.NODEMAILER_PASS,
+    },
+  });
+  transporter.verify((error, success) => {
+    if (error) {
+      console.log(error);
+    } else {
+      console.log("transpoter ready to", success);
+    }
+  });
+
+  // transporter.sendMail()
+  const mailBody = {
+    from: process.env.NODEMAILER_USER, // sender address
+    to: emailAdress, // list of receivers
+    subject: "very importent", // Subject line
+    text: emailAdress,
+    html: `  <div contenteditable="true" className="my-10 w-4/12 text-center mx-auto">
+            <p className="text-orange-400 mb-2 ">--- {bbbbbbbbbbbbbbbbbb} ---</p>
+            <h1 className="border-y-4 py-3 uppercase  text-2xl">${emailAdress}</h1>
+        </div>`, // html body
+  };
+  transporter.sendMail(mailBody, (error, info) => {
+    if (error) {
+      console.log(error);
+    }
+    console.log(info);
+    console.log("email send -------->", info.response);
+  });
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@practice.hcuo4.mongodb.net/?retryWrites=true&w=majority&appName=practice`;
 
@@ -24,7 +71,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const userCollection = client.db("bistroBossDb").collection("user");
     const menuCollection = client.db("bistroBossDb").collection("menu");
@@ -114,6 +161,47 @@ async function run() {
         revenue,
       });
     });
+    // using aggregated pipelines
+    app.get("/order-stats", verifyToken, verifyAdmin, async (req, res) => {
+      const result = await paymentCollection
+        .aggregate([
+          {
+            $unwind: "$menu_ids",
+          },
+          {
+            $lookup: {
+              from: "menu",
+              localField: "menu_ids",
+              foreignField: "_id",
+              as: "menuItems",
+            },
+          },
+          {
+            $unwind: "$menuItems",
+          },
+          {
+            $group: {
+              _id: "$menuItems.category",
+              quantity: {
+                $sum: 1,
+              },
+              revenue: {
+                $sum: "$menuItems.price",
+              },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              category: "$_id",
+              quantity: "$quantity",
+              totalRevenue: "$revenue",
+            },
+          },
+        ])
+        .toArray();
+      res.send(result);
+    });
     // get menu collection
     app.get("/menu", async (req, res) => {
       const menu = await menuCollection.find().toArray();
@@ -193,15 +281,28 @@ async function run() {
     // after payment is successful then data stored api
     app.post("/payment", async (req, res) => {
       const payment = req.body;
+      const email = payment.email;
+      const data = "email send suucceeded thank you so mutch";
       const paymentResult = await paymentCollection.insertOne(payment);
       // carefully delete each item from the cart
-
       const query = {
         _id: {
           $in: payment.cartIds.map((id) => new ObjectId(id)),
         },
       };
       const deleteResult = await cartsCollection.deleteMany(query);
+      sendEmail(email, data);
+      // user email about payment confirmaton
+      // mg.messages
+      //   .create("sandbox-123.mailgun.org", {
+      //     from: "Excited User <mailgun@sandbox16e86cffb5de4532a4d2d3541219055c.mailgun.org>",
+      //     to: ["md286667@gmail.com"],
+      //     subject: "Hello",
+      //     text: "Testing some Mailgun awesomness!",
+      //     html: "<h1>Testing some Mailgun awesomness!</h1>",
+      //   })
+      //   .then((msg) => console.log(msg)) // logs response data
+      //   .catch((err) => console.error(err)); // logs any error
       res.send({ paymentResult, deleteResult });
     });
     // user can delete cart data
@@ -255,10 +356,10 @@ async function run() {
       res.send(result);
     });
     // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
@@ -267,5 +368,5 @@ async function run() {
 run().catch(console.dir);
 
 app.listen(port, () => {
-  console.log("listening on", port);
+  // console.log("listening on", port);
 });
